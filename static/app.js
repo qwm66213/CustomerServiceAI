@@ -30,6 +30,7 @@ function appendMessage(text, role, source) {
     tag.className = "source-tag";
     const labels = {
       keyword: "FAQ匹配",
+      pinyin: "拼音匹配",
       vector: "语义匹配",
       ai: "AI回答",
       fallback: "转人工",

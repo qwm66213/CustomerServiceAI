@@ -61,19 +61,38 @@ def build_index():
     logger.info(f"FAQ 向量索引构建完成: {len(_faq_answers)} 条, 维度={dim}")
 
 
+TOP_K = 3
+MULTI_HIT_MIN_SCORE = 0.50  # 多条合并时，次条最低分
+
+
 def vector_search(query: str) -> tuple[str | None, float]:
     """对用户输入做向量检索，返回 (answer, score)。
+    支持 top-K 多条合并：如果多条 FAQ 都超阈值且不同，拼接回答。
     未命中返回 (None, score)。"""
     if _index is None:
         build_index()
 
     q_vec = _encode([query])
-    scores, indices = _index.search(q_vec, k=1)
+    scores, indices = _index.search(q_vec, k=TOP_K)
 
-    score = float(scores[0][0])
-    idx = int(indices[0][0])
+    top_score = float(scores[0][0])
+    top_idx = int(indices[0][0])
 
-    if score < SIMILARITY_THRESHOLD or idx < 0:
-        return None, score
+    if top_score < SIMILARITY_THRESHOLD or top_idx < 0:
+        return None, top_score
 
-    return _faq_answers[idx], score
+    # top-1 超阈值，检查 top-2/3 是否也相关且不同
+    answers = [_faq_answers[top_idx]]
+    seen = {top_idx}
+    for i in range(1, TOP_K):
+        s = float(scores[0][i])
+        idx = int(indices[0][i])
+        if s >= MULTI_HIT_MIN_SCORE and idx >= 0 and idx not in seen:
+            answers.append(_faq_answers[idx])
+            seen.add(idx)
+
+    if len(answers) > 1:
+        combined = "\n\n---\n\n".join(answers)
+        return combined, top_score
+
+    return answers[0], top_score

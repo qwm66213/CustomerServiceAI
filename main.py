@@ -56,11 +56,12 @@ async def chat(request: Request):
 
     start = time.time()
 
-    # ① 关键词 → ② 向量 → ③ AI 兜底
-    answer, source = match_faq(message)
+    # ① 关键词(含同义词) → ② 拼音 → ③ 向量 → ④ AI 兜底
+    history = sessions[session_id][-MAX_HISTORY:]
+    answer, source = match_faq(message, history=history)
 
     if answer is None:
-        history = sessions[session_id][-MAX_HISTORY:]
+        answer = ask_ai(message, history=history)
         answer = ask_ai(message, history=history)
         source = "ai"
 

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ 管理后台</title>
+<style>
+:root {
+  --bg: #f5f5f5; --card: #fff; --text: #333; --text2: #666;
+  --border: #e0e0e0; --primary: #1677ff; --danger: #ff4d4f;
+  --success: #52c41a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+.header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+.header h1 { font-size:20px; }
+.btn { padding:8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:14px; }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-danger { background:var(--danger); color:#fff; }
+.btn-sm { padding:4px 10px; font-size:12px; }
+
+/* 登录 */
+.login-box { max-width:360px; margin:100px auto; padding:30px; background:var(--card); border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+.login-box h2 { text-align:center; margin-bottom:20px; }
+.login-box input { width:100%; padding:10px; border:1px solid var(--border); border-radius:6px; margin-bottom:12px; font-size:14px; }
+.login-box button { width:100%; }
+
+/* 主面板 */
+.panel { display:none; }
+.panel.active { display:block; }
+.stats-row { display:flex; gap:16px; margin-bottom:20px; }
+.stat-card { background:var(--card); padding:16px; border-radius:8px; flex:1; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+.stat-card h3 { font-size:13px; color:var(--text2); margin-bottom:4px; }
+.stat-card .num { font-size:24px; font-weight:bold; }
+
+table { width:100%; border-collapse:collapse; background:var(--card); border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
+th { background:#fafafa; color:var(--text2); font-weight:600; }
+td .tags { display:flex; flex-wrap:wrap; gap:4px; }
+td .tag { background:#e6f4ff; color:var(--primary); padding:1px 6px; border-radius:3px; font-size:11px; }
+td .tag-syn { background:#fff7e6; color:#fa8c16; }
+.actions { display:flex; gap:6px; }
+
+/* 编辑弹窗 */
+.modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.4); z-index:100; }
+.modal-overlay.active { display:flex; align-items:center; justify-content:center; }
+.modal { background:var(--card); padding:24px; border-radius:10px; width:560px; max-width:90vw; max-height:90vh; overflow-y:auto; }
+.modal h2 { margin-bottom:16px; font-size:18px; }
+.modal label { display:block; font-size:13px; color:var(--text2); margin-bottom:4px; margin-top:12px; }
+.modal input, .modal textarea { width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:14px; font-family:inherit; }
+.modal textarea { min-height:80px; resize:vertical; }
+.modal .modal-btns { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<div id="loginBox" class="login-box">
+  <h2>FAQ 管理后台</h2>
+  <input type="password" id="adminPw" placeholder="请输入管理密码" onkeydown="if(event.key==='Enter')doLogin()">
+  <button class="btn btn-primary" onclick="doLogin()">登录</button>
+</div>
+
+<div id="panel" class="panel">
+  <div class="header">
+    <h1>FAQ 管理</h1>
+    <div>
+      <button class="btn btn-primary" onclick="openAddModal()">+ 新增 FAQ</button>
+      <a href="/" style="margin-left:10px;font-size:13px;color:var(--primary)">返回聊天</a>
+    </div>
+  </div>
+  <div class="stats-row" id="statsRow"></div>
+  <table>
+    <thead><tr><th>ID</th><th>问题</th><th>关键词</th><th>同义词</th><th>回答</th><th>更新时间</th><th>操作</th></tr></thead>
+    <tbody id="faqBody"></tbody>
+  </table>
+</div>
+
+<div id="modalOverlay" class="modal-overlay">
+  <div class="modal">
+    <h2 id="modalTitle">新增 FAQ</h2>
+    <input type="hidden" id="editId">
+    <label>问题</label>
+    <input id="editQuestion" placeholder="如：退款多久到账">
+    <label>关键词（逗号分隔）</label>
+    <input id="editKeywords" placeholder="如：退款,退款到账,退款时间">
+    <label>同义词（逗号分隔）</label>
+    <input id="editSynonyms" placeholder="如：退钱,退费">
+    <label>回答</label>
+    <textarea id="editAnswer" placeholder="标准回答内容"></textarea>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveFaq()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let loggedIn = false;
+
+async function doLogin() {
+  const pw = document.getElementById('adminPw').value;
+  const res = await fetch('/admin/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pw})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    loggedIn = true;
+    document.getElementById('loginBox').style.display = 'none';
+    document.getElementById('panel').classList.add('active');
+    loadFaq();
+    loadFeedbackStats();
+  } else {
+    alert('密码错误');
+  }
+}
+
+async function loadFaq() {
+  const res = await fetch('/admin/api/faq');
+  const list = await res.json();
+  const tbody = document.getElementById('faqBody');
+  tbody.innerHTML = '';
+  list.forEach(f => {
+    const kwTags = f.keywords.map(k => `<span class="tag">${k}</span>`).join('');
+    const synTags = (f.synonyms||[]).map(s => `<span class="tag tag-syn">${s}</span>`).join('');
+    tbody.innerHTML += `<tr>
+      <td>${f.id}</td>
+      <td>${f.question}</td>
+      <td><div class="tags">${kwTags}</div></td>
+      <td><div class="tags">${synTags}</div></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${f.answer}">${f.answer}</td>
+      <td>${f.updated_at||'-'}</td>
+      <td><div class="actions">
+        <button class="btn btn-primary btn-sm" onclick='editFaq(${JSON.stringify(f)})'>编辑</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteFaq(${f.id})">删除</button>
+      </div></td>
+    </tr>`;
+  });
+}
+
+async function loadFeedbackStats() {
+  try {
+    const res = await fetch('/admin/api/feedback/stats');
+    const data = await res.json();
+    const row = document.getElementById('statsRow');
+    const helpful = (data.breakdown.helpful || {});
+    const unhelpful = (data.breakdown.unhelpful || {});
+    const hTotal = Object.values(helpful).reduce((a,b)=>a+b, 0);
+    const uTotal = Object.values(unhelpful).reduce((a,b)=>a+b, 0);
+    row.innerHTML = `
+      <div class="stat-card"><h3>总反馈数</h3><div class="num">${data.total}</div></div>
+      <div class="stat-card"><h3>有帮助</h3><div class="num" style="color:var(--success)">${hTotal}</div></div>
+      <div class="stat-card"><h3>没帮助</h3><div class="num" style="color:var(--danger)">${uTotal}</div></div>
+    `;
+  } catch {}
+}
+
+function openAddModal() {
+  document.getElementById('modalTitle').textContent = '新增 FAQ';
+  document.getElementById('editId').value = '';
+  document.getElementById('editQuestion').value = '';
+  document.getElementById('editKeywords').value = '';
+  document.getElementById('editSynonyms').value = '';
+  document.getElementById('editAnswer').value = '';
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function editFaq(f) {
+  document.getElementById('modalTitle').textContent = '编辑 FAQ';
+  document.getElementById('editId').value = f.id;
+  document.getElementById('editQuestion').value = f.question;
+  document.getElementById('editKeywords').value = (f.keywords||[]).join(',');
+  document.getElementById('editSynonyms').value = (f.synonyms||[]).join(',');
+  document.getElementById('editAnswer').value = f.answer;
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+async function saveFaq() {
+  const id = document.getElementById('editId').value;
+  const question = document.getElementById('editQuestion').value.trim();
+  const keywords = document.getElementById('editKeywords').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const synonyms = document.getElementById('editSynonyms').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const answer = document.getElementById('editAnswer').value.trim();
+  if (!question || !answer) { alert('问题和答案不能为空'); return; }
+
+  const url = id ? `/admin/api/faq/${id}` : '/admin/api/faq';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({question, keywords, synonyms, answer})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    closeModal();
+    loadFaq();
+  } else {
+    alert(data.error || '保存失败');
+  }
+}
+
+async function deleteFaq(id) {
+  if (!confirm('确定删除该 FAQ？')) return;
+  await fetch(`/admin/api/faq/${id}`, {method: 'DELETE'});
+  loadFaq();
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+</body>
+</html>

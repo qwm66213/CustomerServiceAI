@@ -15,8 +15,14 @@ FAQ_PATH = Path(__file__).parent / "faq.json"
 # 否定词列表
 NEGATION_WORDS = {"不", "别", "没", "无需", "不用", "不要", "不再", "无法", "不是", "没有", "并非"}
 
+# 售后关键词（遇到这些问题时引导转人工）
+AFTER_SALES_KEYWORDS = {
+    "退货", "退款", "换货", "退换货", "投诉", "损坏", "坏了", "质量问题",
+    "瑕疵", "破损", "残次", "售后", "维修", "赔偿", "补发",
+}
+
 # 语气词列表（查询预处理时去除）
-PARTICLES = re.compile(r"[啊呢吧嘛哦哈呀哎罢么哇呗嗯噢嚯]+")
+PARTICLES = re.compile(r"[啊呢吧嘛哦哈呀哎罢哇呗嗯噢嚯]+")
 
 # 标点符号（中文+英文）
 PUNCTUATION = re.compile(r"[^\w\s一-鿿]")
@@ -29,13 +35,9 @@ def load_faq() -> list[dict]:
 
 def preprocess_query(text: str) -> str:
     """查询预处理：全角→半角、去标点、去语气词、去多余空格。"""
-    # 全角转半角
     text = unicodedata.normalize("NFKC", text)
-    # 去标点
     text = PUNCTUATION.sub("", text)
-    # 去语气词
     text = PARTICLES.sub("", text)
-    # 去多余空格
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -45,7 +47,6 @@ def _has_negation(text: str, keyword: str) -> bool:
     idx = text.find(keyword)
     if idx <= 0:
         return False
-    # 检查关键词前1-2个字是否为否定词
     prefix = text[max(0, idx - 2) : idx]
     for neg in NEGATION_WORDS:
         if neg in prefix:
@@ -53,17 +54,34 @@ def _has_negation(text: str, keyword: str) -> bool:
     return False
 
 
+def _detect_negation_topic(user_input: str) -> str | None:
+    """检测用户输入是否带否定词+售后话题，返回被否定的话题关键词。"""
+    for kw in AFTER_SALES_KEYWORDS:
+        if kw in user_input and _has_negation(user_input, kw):
+            return kw
+    return None
+
+
+def _is_after_sales(user_input: str) -> bool:
+    """检测用户输入是否属于售后复杂问题。"""
+    for kw in AFTER_SALES_KEYWORDS:
+        if kw in user_input:
+            # 排除否定词情况（如"不退货"不是售后求助）
+            if _has_negation(user_input, kw):
+                continue
+            return True
+    return False
+
+
 def _keyword_match(user_input: str) -> str | None:
     """第一级：精确关键词匹配（含同义词），带否定词检测。"""
     faq_list = load_faq()
-    hits: list[tuple[int, dict]] = []  # (匹配词长度, faq)
+    hits: list[tuple[int, dict]] = []
     for faq in faq_list:
         matched = False
-        # keywords + synonyms 统一参与匹配
         match_words = faq.get("keywords", []) + faq.get("synonyms", [])
         for word in match_words:
             if word in user_input:
-                # 否定词检测
                 if _has_negation(user_input, word):
                     continue
                 hits.append((len(word), faq))
@@ -87,7 +105,6 @@ def _pinyin_match(user_input: str) -> str | None:
         for word in match_words:
             word_pinyin = " ".join(lazy_pinyin(word))
             if word_pinyin in user_pinyin or user_pinyin in word_pinyin:
-                # 否定词也要在拼音层检测
                 if _has_negation(user_input, word):
                     continue
                 hits.append((len(word), faq))
@@ -106,7 +123,6 @@ def match_faq(user_input: str, history: list[dict] | None = None) -> tuple[str |
     ④ 返回 None（交给 AI 兜底）
     返回 (answer, source)。
     """
-    # 查询预处理
     processed = preprocess_query(user_input)
     if not processed:
         return None, None
@@ -124,7 +140,6 @@ def match_faq(user_input: str, history: list[dict] | None = None) -> tuple[str |
     # ③ 向量匹配（上下文增强）
     query = processed
     if history:
-        # 拼接最近1-2轮用户消息作为上下文
         recent_user_msgs = [m["content"] for m in history if m["role"] == "user"][-2:]
         if recent_user_msgs:
             query = " ".join(recent_user_msgs) + " " + query

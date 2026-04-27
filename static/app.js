@@ -8,8 +8,11 @@ const sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(
 const sourceLabels = {
   keyword: "FAQ匹配",
   pinyin: "拼音匹配",
+  edit_distance: "形近匹配",
   vector: "语义匹配",
+  vector_low: "语义匹配(低置信)",
   ai: "AI回答",
+  chat: "闲聊",
   fallback: "转人工",
   transfer: "转人工",
   system: "系统",

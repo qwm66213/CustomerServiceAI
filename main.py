@@ -151,7 +151,14 @@ async def chat(request: Request):
         history = get_messages(session_id)[-MAX_HISTORY:]
         answer, source = match_faq(message, history=history)
 
-        if answer is None:
+        # 闲聊意图直接走 AI
+        if source == "chat":
+            answer = None
+        # 转人工意图
+        if source == "transfer":
+            answer = HUMAN_TRANSFER
+
+        if answer is None and source != "transfer":
             answer = ask_ai(message, history=history)
             source = "ai"
 
@@ -162,7 +169,7 @@ async def chat(request: Request):
                 )
                 source = "fallback"
 
-        if source in ("keyword", "pinyin", "vector") and _is_after_sales(message):
+        if source in ("keyword", "pinyin", "edit_distance", "vector", "vector_low") and _is_after_sales(message):
             transfer_hint = "\n\n如需进一步处理，请输入「转人工」或拨打 400-888-0000，人工客服会为您妥善解决。"
             if transfer_hint.strip() not in answer:
                 answer += transfer_hint
@@ -329,3 +336,27 @@ async def admin_feedback_stats():
     for r in rows:
         breakdown.setdefault(r["rating"], {})[r["source"]] = r["cnt"]
     return {"total": total, "breakdown": breakdown}
+
+
+@app.get("/admin/api/faq-suggestions")
+async def admin_faq_suggestions():
+    """分析 query_log 中频繁走到 AI 的问题，建议补充 FAQ。"""
+    from collections import defaultdict as _dd
+
+    ai_queries = [q["query"] for q in query_log if q["source"] == "ai"]
+    if not ai_queries:
+        return {"suggestions": []}
+
+    # 简单聚类：按查询文本聚合计数
+    query_counts = _dd(int)
+    for q in ai_queries:
+        query_counts[q] += 1
+
+    # 按频次排序，取 top 10
+    sorted_queries = sorted(query_counts.items(), key=lambda x: -x[1])
+    suggestions = [
+        {"query": q, "count": cnt}
+        for q, cnt in sorted_queries[:10]
+        if cnt >= 2  # 至少出现 2 次才建议
+    ]
+    return {"suggestions": suggestions}

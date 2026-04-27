@@ -69,6 +69,10 @@ td .tag-syn { background:#fff7e6; color:#fa8c16; }
     </div>
   </div>
   <div class="stats-row" id="statsRow"></div>
+  <div id="suggestionsBox" style="margin-bottom:20px;background:var(--card);padding:16px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.06);display:none">
+    <h3 style="margin-bottom:8px;font-size:14px;color:var(--text2)">💡 建议补充 FAQ（高频 AI 兜底问题）</h3>
+    <div id="suggestionsList"></div>
+  </div>
   <table>
     <thead><tr><th>ID</th><th>问题</th><th>关键词</th><th>同义词</th><th>回答</th><th>更新时间</th><th>操作</th></tr></thead>
     <tbody id="faqBody"></tbody>
@@ -111,6 +115,7 @@ async function doLogin() {
     document.getElementById('panel').classList.add('active');
     loadFaq();
     loadFeedbackStats();
+    loadFaqSuggestions();
   } else {
     alert('密码错误');
   }
@@ -154,6 +159,31 @@ async function loadFeedbackStats() {
       <div class="stat-card"><h3>没帮助</h3><div class="num" style="color:var(--danger)">${uTotal}</div></div>
     `;
   } catch {}
+}
+
+async function loadFaqSuggestions() {
+  try {
+    const res = await fetch('/admin/api/faq-suggestions');
+    const data = await res.json();
+    const box = document.getElementById('suggestionsBox');
+    const list = document.getElementById('suggestionsList');
+    if (!data.suggestions || data.suggestions.length === 0) {
+      box.style.display = 'none';
+      return;
+    }
+    box.style.display = 'block';
+    list.innerHTML = data.suggestions.map(s =>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px">"${s.query}" <span style="color:var(--text2);font-size:11px">(${s.count}次走到AI)</span></span>
+        <button class="btn btn-primary btn-sm" onclick="quickAddFaq('${s.query.replace(/'/g,"\\'")}')">补充</button>
+      </div>`
+    ).join('');
+  } catch {}
+}
+
+function quickAddFaq(query) {
+  openAddModal();
+  document.getElementById('editQuestion').value = query;
 }
 
 function openAddModal() {

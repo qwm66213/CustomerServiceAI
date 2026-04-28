@@ -8,7 +8,7 @@
 :root {
   --bg: #f5f5f5; --card: #fff; --text: #333; --text2: #666;
   --border: #e0e0e0; --primary: #1677ff; --danger: #ff4d4f;
-  --success: #52c41a;
+  --success: #52c41a; --warning: #faad14;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
@@ -28,10 +28,49 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 /* 主面板 */
 .panel { display:none; }
 .panel.active { display:block; }
-.stats-row { display:flex; gap:16px; margin-bottom:20px; }
-.stat-card { background:var(--card); padding:16px; border-radius:8px; flex:1; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+.stats-row { display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+.stat-card { background:var(--card); padding:16px; border-radius:8px; flex:1; min-width:120px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
 .stat-card h3 { font-size:13px; color:var(--text2); margin-bottom:4px; }
 .stat-card .num { font-size:24px; font-weight:bold; }
+
+/* 健康卡片 */
+.health-card { background:var(--card); padding:16px 20px; border-radius:8px; margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,.06); display:flex; align-items:center; gap:16px; }
+.health-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+.health-dot.healthy { background:var(--success); box-shadow:0 0 6px var(--success); }
+.health-dot.degraded { background:var(--warning); box-shadow:0 0 6px var(--warning); }
+.health-dot.unavailable { background:var(--danger); box-shadow:0 0 6px var(--danger); }
+.health-info h3 { font-size:14px; margin-bottom:2px; }
+.health-info p { font-size:12px; color:var(--text2); }
+
+/* 匹配统计图表 */
+.chart-card { background:var(--card); padding:20px; border-radius:8px; margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+.chart-card h3 { font-size:14px; margin-bottom:16px; color:var(--text2); }
+.bar-chart { display:flex; flex-direction:column; gap:10px; }
+.bar-row { display:flex; align-items:center; gap:10px; }
+.bar-label { width:80px; font-size:12px; color:var(--text2); text-align:right; flex-shrink:0; }
+.bar-track { flex:1; height:20px; background:#f0f0f0; border-radius:4px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:4px; transition:width .6s ease; display:flex; align-items:center; padding-left:8px; font-size:11px; color:#fff; font-weight:600; }
+.bar-fill.c-keyword { background:#1677ff; }
+.bar-fill.c-pinyin { background:#13c2c2; }
+.bar-fill.c-edit_distance { background:#722ed1; }
+.bar-fill.c-vector { background:#52c41a; }
+.bar-fill.c-vector_low { background:#faad14; color:#333; }
+.bar-fill.c-ai { background:#fa8c16; }
+.bar-fill.c-chat { background:#eb2f96; }
+.bar-fill.c-transfer { background:#f5222d; }
+.bar-fill.c-fallback { background:#8c8c8c; }
+.bar-count { width:36px; font-size:12px; color:var(--text2); flex-shrink:0; }
+
+/* 热门问题 */
+.top-queries { margin-top:16px; }
+.top-queries h4 { font-size:13px; color:var(--text2); margin-bottom:8px; }
+.query-item { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.query-item:last-child { border-bottom:none; }
+
+/* 最近查询 */
+.recent-table { width:100%; border-collapse:collapse; margin-top:12px; }
+.recent-table th, .recent-table td { padding:6px 8px; text-align:left; border-bottom:1px solid var(--border); font-size:12px; }
+.recent-table th { color:var(--text2); font-weight:600; }
 
 table { width:100%; border-collapse:collapse; background:var(--card); border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
 th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
@@ -50,6 +89,14 @@ td .tag-syn { background:#fff7e6; color:#fa8c16; }
 .modal input, .modal textarea { width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:14px; font-family:inherit; }
 .modal textarea { min-height:80px; resize:vertical; }
 .modal .modal-btns { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+
+/* Tab 切换 */
+.tabs { display:flex; gap:0; margin-bottom:20px; border-bottom:2px solid var(--border); }
+.tab { padding:10px 20px; cursor:pointer; font-size:14px; color:var(--text2); border-bottom:2px solid transparent; margin-bottom:-2px; transition:all .2s; }
+.tab:hover { color:var(--primary); }
+.tab.active { color:var(--primary); border-bottom-color:var(--primary); font-weight:600; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
 </style>
 </head>
 <body>
@@ -68,15 +115,61 @@ td .tag-syn { background:#fff7e6; color:#fa8c16; }
       <a href="/" style="margin-left:10px;font-size:13px;color:var(--primary)">返回聊天</a>
     </div>
   </div>
-  <div class="stats-row" id="statsRow"></div>
-  <div id="suggestionsBox" style="margin-bottom:20px;background:var(--card);padding:16px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.06);display:none">
-    <h3 style="margin-bottom:8px;font-size:14px;color:var(--text2)">💡 建议补充 FAQ（高频 AI 兜底问题）</h3>
-    <div id="suggestionsList"></div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('faq')">FAQ 管理</div>
+    <div class="tab" onclick="switchTab('stats')">匹配统计</div>
   </div>
-  <table>
-    <thead><tr><th>ID</th><th>问题</th><th>关键词</th><th>同义词</th><th>回答</th><th>更新时间</th><th>操作</th></tr></thead>
-    <tbody id="faqBody"></tbody>
-  </table>
+
+  <!-- FAQ Tab -->
+  <div id="tabFaq" class="tab-panel active">
+    <div class="stats-row" id="feedbackStatsRow"></div>
+    <div id="suggestionsBox" style="margin-bottom:20px;background:var(--card);padding:16px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.06);display:none">
+      <h3 style="margin-bottom:8px;font-size:14px;color:var(--text2)">建议补充 FAQ（高频 AI 兜底问题）</h3>
+      <div id="suggestionsList"></div>
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>问题</th><th>关键词</th><th>同义词</th><th>回答</th><th>更新时间</th><th>操作</th></tr></thead>
+      <tbody id="faqBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Stats Tab -->
+  <div id="tabStats" class="tab-panel">
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card"><h3>总请求量</h3><div class="num" id="statTotal">0</div></div>
+      <div class="stat-card"><h3>平均响应</h3><div class="num" id="statAvgElapsed">0s</div></div>
+      <div class="stat-card"><h3>FAQ 命中率</h3><div class="num" id="statFaqRate">0%</div></div>
+      <div class="stat-card"><h3>AI 兜底率</h3><div class="num" id="statAiRate">0%</div></div>
+    </div>
+
+    <div class="health-card" id="healthCard">
+      <div class="health-dot" id="healthDot"></div>
+      <div class="health-info">
+        <h3 id="healthTitle">AI 服务状态</h3>
+        <p id="healthDetail">加载中...</p>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>匹配来源分布</h3>
+      <div class="bar-chart" id="barChart"></div>
+    </div>
+
+    <div class="chart-card">
+      <h3>热门问题 Top 10</h3>
+      <div class="top-queries" id="topQueries"></div>
+    </div>
+
+    <div class="chart-card">
+      <h3>最近查询</h3>
+      <table class="recent-table">
+        <thead><tr><th>时间</th><th>问题</th><th>来源</th><th>耗时</th></tr></thead>
+        <tbody id="recentBody"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <div id="modalOverlay" class="modal-overlay">
@@ -99,7 +192,20 @@ td .tag-syn { background:#fff7e6; color:#fa8c16; }
 </div>
 
 <script>
+const sourceLabels = {
+  keyword: "FAQ匹配", pinyin: "拼音匹配", edit_distance: "形近匹配",
+  vector: "语义匹配", vector_low: "语义匹配(低置信)", ai: "AI回答",
+  chat: "闲聊", fallback: "转人工", transfer: "转人工", system: "系统"
+};
+
 let loggedIn = false;
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (tab==='faq'&&i===0)||(tab==='stats'&&i===1)));
+  document.getElementById('tabFaq').classList.toggle('active', tab==='faq');
+  document.getElementById('tabStats').classList.toggle('active', tab==='stats');
+  if (tab === 'stats') loadStats();
+}
 
 async function doLogin() {
   const pw = document.getElementById('adminPw').value;
@@ -148,7 +254,7 @@ async function loadFeedbackStats() {
   try {
     const res = await fetch('/admin/api/feedback/stats');
     const data = await res.json();
-    const row = document.getElementById('statsRow');
+    const row = document.getElementById('feedbackStatsRow');
     const helpful = (data.breakdown.helpful || {});
     const unhelpful = (data.breakdown.unhelpful || {});
     const hTotal = Object.values(helpful).reduce((a,b)=>a+b, 0);
@@ -184,6 +290,70 @@ async function loadFaqSuggestions() {
 function quickAddFaq(query) {
   openAddModal();
   document.getElementById('editQuestion').value = query;
+}
+
+async function loadStats() {
+  try {
+    const [statsRes, healthRes] = await Promise.all([
+      fetch('/admin/api/stats'),
+      fetch('/admin/api/health')
+    ]);
+    const stats = await statsRes.json();
+    const health = await healthRes.json();
+
+    // 概览数字
+    document.getElementById('statTotal').textContent = stats.total;
+    document.getElementById('statAvgElapsed').textContent = stats.avg_elapsed + 's';
+
+    const faqSources = ['keyword','pinyin','edit_distance','vector','vector_low'];
+    const faqCount = faqSources.reduce((s,k) => s + (stats.counts[k]||0), 0);
+    const faqRate = stats.total > 0 ? Math.round(faqCount/stats.total*100) : 0;
+    document.getElementById('statFaqRate').textContent = faqRate + '%';
+
+    const aiCount = stats.counts['ai'] || 0;
+    const aiRate = stats.total > 0 ? Math.round(aiCount/stats.total*100) : 0;
+    document.getElementById('statAiRate').textContent = aiRate + '%';
+
+    // 健康卡片
+    const dot = document.getElementById('healthDot');
+    dot.className = 'health-dot ' + health.status;
+    const statusText = {healthy:'正常',degraded:'降级',unavailable:'不可用'}[health.status] || health.status;
+    document.getElementById('healthTitle').textContent = `AI 服务：${statusText}`;
+    let detail = `总调用 ${health.total_calls} 次，失败 ${health.fail_count} 次（${(health.fail_rate*100).toFixed(1)}%）`;
+    if (health.last_fail_time) detail += `，最近失败：${health.last_fail_time}`;
+    if (!health.available) detail = '未配置 OPENAI_API_KEY，AI 服务不可用';
+    document.getElementById('healthDetail').textContent = detail;
+
+    // 柱状图
+    const order = ['keyword','pinyin','edit_distance','vector','vector_low','ai','chat','transfer','fallback'];
+    const maxVal = Math.max(1, ...order.map(k => stats.counts[k]||0));
+    const chart = document.getElementById('barChart');
+    chart.innerHTML = order.map(k => {
+      const cnt = stats.counts[k] || 0;
+      if (cnt === 0 && stats.total === 0) return '';
+      const pct = maxVal > 0 ? (cnt/maxVal*100) : 0;
+      return `<div class="bar-row">
+        <div class="bar-label">${sourceLabels[k]||k}</div>
+        <div class="bar-track"><div class="bar-fill c-${k}" style="width:${pct}%">${cnt>0?cnt:''}</div></div>
+        <div class="bar-count">${cnt}</div>
+      </div>`;
+    }).join('');
+
+    // 热门问题
+    const tq = document.getElementById('topQueries');
+    tq.innerHTML = (stats.top_queries||[]).map(q =>
+      `<div class="query-item"><span>"${q.query}"</span><span style="color:var(--text2)">${q.count} 次</span></div>`
+    ).join('') || '<div style="font-size:13px;color:var(--text2)">暂无数据</div>';
+
+    // 最近查询
+    const rb = document.getElementById('recentBody');
+    rb.innerHTML = (stats.recent_queries||[]).reverse().map(q =>
+      `<tr><td>${q.time||'-'}</td><td>${q.query}</td><td>${sourceLabels[q.source]||q.source}</td><td>${q.elapsed||''}s</td></tr>`
+    ).join('');
+
+  } catch(e) {
+    console.error('加载统计失败', e);
+  }
 }
 
 function openAddModal() {

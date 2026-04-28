@@ -23,6 +23,9 @@ MAX_RETRIES = 2
 RETRY_DELAY = 1
 AI_TIMEOUT = 15
 
+# 健康状态追踪
+_health_stats = {"total": 0, "fail": 0, "last_fail_time": None, "last_error": None}
+
 
 def _build_system_prompt(negation_topic: str | None = None) -> str:
     """将 FAQ 知识库注入 system prompt，让 AI 回答与已有政策一致。"""
@@ -96,4 +99,32 @@ def ask_ai(question: str, history: list[dict] | None = None) -> str:
                 time.sleep(RETRY_DELAY)
 
     logger.error(f"AI 调用全部失败: {last_error}")
+    global _last_ai_error
+    _last_ai_error = str(last_error)
     return None
+
+
+def ask_ai_with_stats(question: str, history: list[dict] | None = None) -> str:
+    """ask_ai 的包装，记录健康统计。"""
+    _health_stats["total"] += 1
+    result = ask_ai(question, history=history)
+    if result is None:
+        _health_stats["fail"] += 1
+        _health_stats["last_fail_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        _health_stats["last_error"] = _last_ai_error or "unknown"
+    return result
+
+
+def get_ai_health() -> dict:
+    """返回 AI 服务健康状态。"""
+    total = _health_stats["total"]
+    fail = _health_stats["fail"]
+    fail_rate = round(fail / total, 3) if total > 0 else 0
+    return {
+        "available": os.getenv("OPENAI_API_KEY") is not None,
+        "total_calls": total,
+        "fail_count": fail,
+        "fail_rate": fail_rate,
+        "last_fail_time": _health_stats["last_fail_time"],
+        "status": "healthy" if fail_rate < 0.3 else ("degraded" if fail_rate < 0.7 else "unavailable"),
+    }

@@ -2,16 +2,16 @@ import json
 import logging
 import os
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ai_service import ask_ai
+from ai_service import ask_ai_with_stats, get_ai_health
 from auth import create_token, decode_token, hash_password, verify_password
 from database import get_db, init_db
 from faq_service import load_faq, match_faq, _is_after_sales
@@ -33,14 +33,30 @@ match_stats = Counter()
 query_log: list[dict] = []
 MAX_LOG = 1000
 
+# 限流：按 key 记录时间窗口内的请求
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT = 20  # 每分钟最大请求数
+RATE_WINDOW = 60  # 秒
+
 HUMAN_TRANSFER = (
     "您的问题已超出售前客服范围，建议联系人工客服获得专业帮助。\n"
     "请输入「转人工」或拨打售后电话 400-888-0000，工作时间 9:00-21:00。"
 )
 
 
+def _check_rate_limit(key: str) -> bool:
+    """检查是否超限，返回 True 表示放行。"""
+    now = time.time()
+    records = _rate_limit_store[key]
+    # 清理过期记录
+    _rate_limit_store[key] = [t for t in records if now - t < RATE_WINDOW]
+    if len(_rate_limit_store[key]) >= RATE_LIMIT:
+        return False
+    _rate_limit_store[key].append(now)
+    return True
+
+
 def sync_faq_json():
-    """将 DB 中的 FAQ 数据写回 faq.json，再重建向量索引。"""
     db = get_db()
     rows = db.execute("SELECT question, keywords, synonyms, answer FROM faq ORDER BY id").fetchall()
     db.close()
@@ -72,6 +88,24 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="电商AI客服", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+
+# ============ 限流中间件 ============
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # 只限流 /chat 接口
+    if request.url.path == "/chat" and request.method == "POST":
+        client_ip = request.client.host if request.client else "unknown"
+        key = f"chat:{client_ip}"
+        if not _check_rate_limit(key):
+            logger.warning(f"限流触发: key={key}, count={len(_rate_limit_store[key])}")
+            return JSONResponse(
+                {"reply": "请求过于频繁，请稍后再试。", "source": "rate_limit"},
+                status_code=429,
+            )
+    response = await call_next(request)
+    return response
 
 
 # ============ 页面 ============
@@ -124,6 +158,17 @@ async def login(request: Request):
     return {"ok": True, "token": token, "username": username}
 
 
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return {"ok": False, "user": None}
+    user = decode_token(auth_header[7:])
+    if not user:
+        return {"ok": False, "user": None}
+    return {"ok": True, "user": {"user_id": user["user_id"], "username": user["username"]}}
+
+
 # ============ 聊天 ============
 
 @app.post("/chat")
@@ -132,7 +177,6 @@ async def chat(request: Request):
     message = body.get("message", "").strip()
     session_id = body.get("session_id", "default")
 
-    # 可选用户认证
     user = None
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
@@ -151,15 +195,13 @@ async def chat(request: Request):
         history = get_messages(session_id)[-MAX_HISTORY:]
         answer, source = match_faq(message, history=history)
 
-        # 闲聊意图直接走 AI
         if source == "chat":
             answer = None
-        # 转人工意图
         if source == "transfer":
             answer = HUMAN_TRANSFER
 
         if answer is None and source != "transfer":
-            answer = ask_ai(message, history=history)
+            answer = ask_ai_with_stats(message, history=history)
             source = "ai"
 
             if answer is None:
@@ -177,7 +219,7 @@ async def chat(request: Request):
     elapsed = time.time() - start
 
     match_stats[source] += 1
-    query_log.append({"query": message[:50], "source": source, "elapsed": round(elapsed, 2)})
+    query_log.append({"query": message[:50], "source": source, "elapsed": round(elapsed, 2), "time": time.strftime("%H:%M:%S")})
     if len(query_log) > MAX_LOG:
         query_log[:] = query_log[-MAX_LOG:]
 
@@ -241,6 +283,27 @@ async def submit_feedback(request: Request):
     return {"ok": True}
 
 
+# ============ 导出 ============
+
+@app.get("/export")
+async def export_chat(session_id: str = "default"):
+    messages = get_messages(session_id)
+    if not messages:
+        return JSONResponse({"error": "无对话记录"}, 404)
+
+    lines = [f"# 对话记录 ({session_id[:8]})\n"]
+    for m in messages:
+        role = "👤 用户" if m["role"] == "user" else "🤖 客服"
+        lines.append(f"**{role}**：{m['content']}\n")
+
+    md_content = "\n".join(lines)
+    return Response(
+        content=md_content.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="chat_{session_id[:8]}.md"'},
+    )
+
+
 # ============ 统计 ============
 
 @app.get("/stats")
@@ -259,6 +322,39 @@ async def admin_login(request: Request):
     if body.get("password", "") != ADMIN_PASSWORD:
         return JSONResponse({"ok": False, "error": "密码错误"}, 401)
     return {"ok": True}
+
+
+@app.get("/admin/api/stats")
+async def admin_stats():
+    """匹配统计可视化数据。"""
+    total = sum(match_stats.values())
+    counts = dict(match_stats)
+
+    # 热门问题 top 10
+    query_counts = defaultdict(int)
+    for q in query_log:
+        query_counts[q["query"]] += 1
+    top_queries = sorted(query_counts.items(), key=lambda x: -x[1])[:10]
+
+    # 平均响应时间
+    avg_elapsed = 0
+    if query_log:
+        avg_elapsed = round(sum(q["elapsed"] for q in query_log) / len(query_log), 3)
+
+    return {
+        "total": total,
+        "counts": counts,
+        "top_queries": [{"query": q, "count": c} for q, c in top_queries],
+        "avg_elapsed": avg_elapsed,
+        "recent_queries": query_log[-30:],
+    }
+
+
+@app.get("/admin/api/health")
+async def admin_health():
+    """AI 健康状态。"""
+    health = get_ai_health()
+    return health
 
 
 @app.get("/admin/api/faq")
@@ -340,23 +436,18 @@ async def admin_feedback_stats():
 
 @app.get("/admin/api/faq-suggestions")
 async def admin_faq_suggestions():
-    """分析 query_log 中频繁走到 AI 的问题，建议补充 FAQ。"""
-    from collections import defaultdict as _dd
-
     ai_queries = [q["query"] for q in query_log if q["source"] == "ai"]
     if not ai_queries:
         return {"suggestions": []}
 
-    # 简单聚类：按查询文本聚合计数
-    query_counts = _dd(int)
+    query_counts = defaultdict(int)
     for q in ai_queries:
         query_counts[q] += 1
 
-    # 按频次排序，取 top 10
     sorted_queries = sorted(query_counts.items(), key=lambda x: -x[1])
     suggestions = [
         {"query": q, "count": cnt}
         for q, cnt in sorted_queries[:10]
-        if cnt >= 2  # 至少出现 2 次才建议
+        if cnt >= 2
     ]
     return {"suggestions": suggestions}
